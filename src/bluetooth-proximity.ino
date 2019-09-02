@@ -1,8 +1,8 @@
 /*
  * Project bluetooth-proximity
- * Description:
+ * Description: Check the proximity of a Tile device. Send a message when the device arrives or leaves.
  * Author: Jared Wolff
- * Date:
+ * Date: 9/2/2019
  */
 
 typedef enum {
@@ -10,6 +10,12 @@ typedef enum {
     Here,
     NotHere
 } TilePresenceType;
+
+const char * messages[] {
+    "unknown",
+    "here",
+    "not here"
+};
 
 #include "Particle.h"
 #include "config.h"
@@ -189,8 +195,8 @@ void loop() {
         searchAddress.toString().toCharArray(address,sizeof(address));
 
         // Create payload
-        status = String::format("{\"address\":\"%s\",\"lastSeen\":%d,\"lastRSSI\":%i,\"status\":\"%d\"}",
-            address, lastSeen, lastRSSI, present);
+        status = String::format("{\"address\":\"%s\",\"lastSeen\":%d,\"lastRSSI\":%i,\"status\":\"%s\"}",
+            address, lastSeen, lastRSSI, messages[present]);
 
         // Publish the RSSI and Device Info
         Particle.publish("status", status, PRIVATE, WITH_ACK);
