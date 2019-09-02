@@ -1,36 +1,54 @@
-// /*
-//  * Project bluetooth-proximity
-//  * Description:
-//  * Author:
-//  * Date:
-//  */
+/*
+ * Project bluetooth-proximity
+ * Description:
+ * Author: Jared Wolff
+ * Date:
+ */
 
-// // setup() runs once, when the device is first turned on.
-// void setup() {
-//   // Put initialization like pinMode and begin functions here.
-
-// }
-
-// // loop() runs over and over again, as quickly as it can execute.
-// void loop() {
-//   // The core of your code will likely live here.
-
-// }
+typedef enum {
+    PresenceUnknown,
+    Here,
+    NotHere
+} TilePresenceType;
 
 #include "Particle.h"
-#include "helper.h"
 #include "config.h"
 
 // For debugging only
 // SYSTEM_MODE(MANUAL);
 
+// Enable thread
+// SYSTEM_THREAD(ENABLED);
+
+TilePresenceType present = PresenceUnknown;
+
+BleAddress searchAddress;
+int8_t lastRSSI;
+system_tick_t lastSeen = 0;
+
+String status;
+
 // For logging
-SerialLogHandler logHandler(115200, LOG_LEVEL_NONE, {
-    { "app", LOG_LEVEL_ALL }, // enable all app messages
-    // { "system", LOG_LEVEL_INFO } // only info level for system messages
+SerialLogHandler logHandler(115200, LOG_LEVEL_ERROR, {
+    { "app", LOG_LEVEL_TRACE }, // enable all app messages
 });
 
-// Local functoin to print out scan parametrs
+// Check if "Learning mode" is on
+bool isLearningModeOn() {
+    return (digitalRead(D7) == HIGH);
+}
+
+// Set "Learning mode" on
+void setLearningModeOn() {
+    digitalWrite(D7,HIGH);
+}
+
+// Set "Learning mode" off
+void setLearningModeOff() {
+    digitalWrite(D7,LOW);
+}
+
+// Local function to print out scan parametrs
 void getScanParams() {
   BleScanParams scanParams;
   scanParams.version = BLE_API_VERSION;
@@ -45,6 +63,11 @@ void getScanParams() {
 // Callback when a new device is found advertising
 void scanResultCallback(const BleScanResult *scanResult, void *context) {
 
+    // If device address doesn't match or we're not in "learning mode"
+    if( !(searchAddress == scanResult->address) && !isLearningModeOn() ) {
+        return;
+    }
+
     // If it has a human readable name print that too
     String name = scanResult->advertisingData.deviceName();
 
@@ -55,8 +78,9 @@ void scanResultCallback(const BleScanResult *scanResult, void *context) {
     // If there are uuids, let's see if they have what we need
     if( uuidsAvail ) {
         // Print out mac info
-        printBLEAddr(scanResult->address);
-        Log.info("RSSI: %dBm", scanResult->rssi);
+        BleAddress addr = scanResult->address;
+        Log.trace("MAC: %02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+        Log.trace("RSSI: %dBm", scanResult->rssi);
 
         // Loop over all available UUIDs
         // For tile devices there should only be one
@@ -64,12 +88,22 @@ void scanResultCallback(const BleScanResult *scanResult, void *context) {
 
             // Print out the UUID we're looking for
             if( uuids[i].shorted() == TILE_UUID ) {
-                Log.info("UUID: %x", uuids[i].shorted());
+                Log.trace("UUID: %x", uuids[i].shorted());
 
-                // Connect to the device.
-                // found = true;
-                // foundAddress = scanResult->address;
+                // If we're in learning mode. Save to EEprom
+                if( isLearningModeOn() ) {
+                    searchAddress = scanResult->address;
+                    EEPROM.put(TILE_EEPROM_ADDRESS, scanResult->address);
+                    setLearningModeOff();
+                }
+
+                // Save info
+                lastSeen = millis();
+                lastRSSI = scanResult->rssi;
+
+                // Stop scanning
                 BLE.stopScanning();
+
                 return;
             }
         }
@@ -77,30 +111,93 @@ void scanResultCallback(const BleScanResult *scanResult, void *context) {
 
 }
 
+void systemEventHandler(system_event_t event, int duration, void* )
+{
+
+    // If we have a button click. Turn on the Blue led
+    // that way we're in "learning mode"
+    if( event == button_click ) {
+        if( isLearningModeOn() ) {
+            setLearningModeOff();
+        } else {
+            setLearningModeOn();
+        }
+    }
+
+}
+
+bool checkTileStateChanged( TilePresenceType *presence ) {
+
+    // Check to see if it's here.
+    if( millis() > lastSeen+TILE_NOT_HERE_MS ) {
+        if( *presence != NotHere ) {
+            *presence = NotHere;
+            Log.trace("not here!");
+            return true;
+        }
+    } else if ( lastSeen == 0 ) {
+        if( *presence != PresenceUnknown ) {
+            *presence = PresenceUnknown;
+            Log.trace("unknown!");
+            return true;
+        }
+    } else {
+        if( *presence != Here ) {
+            *presence = Here;
+            Log.trace("here!");
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void setup() {
     (void)logHandler; // Does nothing, just to eliminate warning for unused variable
 
-    // 10 second scan timeout.
-    BLE.setScanTimeout(1000);
+    // Set LED pin
+    pinMode(D7,OUTPUT);
+
+    // Set up button event handler
+    System.on(button_click, systemEventHandler);
+
+    // Set timeout for BLE to 500ms
+    BLE.setScanTimeout(50);
+
+    // Get the search address
+    EEPROM.get(TILE_EEPROM_ADDRESS, searchAddress);
+
+    // Warning about address
+    if( searchAddress == BleAddress("ff:ff:ff:ff:ff:ff") ) {
+        Log.warn("Place this board into learning mode");
+        Log.warn("and keep your Tile near by.");
+    }
 }
 
 void loop() {
+
     // Scan for devices
-    BLE.scan(scanResultCallback, NULL);
+    if( (millis() > lastSeen + TILE_RE_CHECK_MS) ){
+        BLE.scan(scanResultCallback, NULL);
+    }
 
-    // if( !found ) {
-    // } else if (found && !connected) {
-    //     Log.info("connecting.. %02X:%02X:%02X:%02X:%02X:%02X",
-    //         foundAddress[0], foundAddress[1], foundAddress[2],
-    //         foundAddress[3], foundAddress[4], foundAddress[5]);
+    // If we have a change
+    if( checkTileStateChanged(&present) ) {
 
-    //     BlePeerDevice peer = BLE.connect(foundAddress,24,0,1100);
+        // Get the address string
+        char address[18];
+        searchAddress.toString().toCharArray(address,sizeof(address));
 
-    //     if( peer.connected() ) {
-    //         Log.info("connected!");
-    //         connected = true;
-    //     }
-    //     delay(5000);
-    // }
+        // Create payload
+        status = String::format("{\"address\":\"%s\",\"lastSeen\":%d,\"lastRSSI\":%i,\"status\":\"%d\"}",
+            address, lastSeen, lastRSSI, present);
+
+        // Publish the RSSI and Device Info
+        Particle.publish("status", status, PRIVATE, WITH_ACK);
+
+        // Process the publish event immediately
+        Particle.process();
+
+    }
 
 }

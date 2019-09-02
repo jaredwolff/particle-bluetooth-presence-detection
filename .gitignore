@@ -1,0 +1,4 @@
+target
+.vscode
+project.properties
+src/bluetooth-proximity.cpp
