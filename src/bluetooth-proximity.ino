@@ -157,6 +157,19 @@ bool checkTileStateChanged( TilePresenceType *presence ) {
     return false;
 }
 
+void checkForScanStart() {
+    // Reset timer
+    if( lastSeen > millis() ) {
+        lastSeen = 0;
+    }
+
+    // Scan for devices
+    if( (millis() > lastSeen + TILE_RE_CHECK_MS) ){
+        Log.trace("scan start.");
+        BLE.scan(scanResultCallback, NULL);
+    }
+}
+
 void setup() {
     (void)logHandler; // Does nothing, just to eliminate warning for unused variable
 
@@ -181,16 +194,8 @@ void setup() {
 
 void loop() {
 
-    // Reset timer
-    if( lastSeen > millis() ) {
-        lastSeen = 0;
-    }
-
-    // Scan for devices
-    if( (millis() > lastSeen + TILE_RE_CHECK_MS) ){
-        Log.trace("scan start.");
-        BLE.scan(scanResultCallback, NULL);
-    }
+    // Check for scan start
+    checkForScanStart();
 
     // If we have a change
     if( checkTileStateChanged(&present) ) {
