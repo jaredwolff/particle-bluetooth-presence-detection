@@ -26,12 +26,17 @@ const char * messages[] {
 // Enable thread
 // SYSTEM_THREAD(ENABLED);
 
+// Default status
 TilePresenceType present = PresenceUnknown;
 
+// Used to store the address of the device we're looking for
 BleAddress searchAddress;
+
+// Stores the most recent data related to the device we're looking for
 int8_t lastRSSI;
 system_tick_t lastSeen = 0;
 
+// The payload going to the cloud
 String status;
 
 // For logging
@@ -74,44 +79,38 @@ void scanResultCallback(const BleScanResult *scanResult, void *context) {
         return;
     }
 
-    // If it has a human readable name print that too
-    String name = scanResult->advertisingData.deviceName();
-
     // Collect the uuids showing in the advertising data
     BleUuid uuids[4];
     int uuidsAvail = scanResult->advertisingData.serviceUUID(uuids,sizeof(uuids)/sizeof(BleUuid));
 
-    // If there are uuids, let's see if they have what we need
-    if( uuidsAvail ) {
-        // Print out mac info
-        BleAddress addr = scanResult->address;
-        Log.trace("MAC: %02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
-        Log.trace("RSSI: %dBm", scanResult->rssi);
+    // Print out mac info
+    BleAddress addr = scanResult->address;
+    Log.trace("MAC: %02X:%02X:%02X:%02X:%02X:%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+    Log.trace("RSSI: %dBm", scanResult->rssi);
 
-        // Loop over all available UUIDs
-        // For tile devices there should only be one
-        for(int i = 0; i < uuidsAvail; i++){
+    // Loop over all available UUIDs
+    // For tile devices there should only be one
+    for(int i = 0; i < uuidsAvail; i++){
 
-            // Print out the UUID we're looking for
-            if( uuids[i].shorted() == TILE_UUID ) {
-                Log.trace("UUID: %x", uuids[i].shorted());
+        // Print out the UUID we're looking for
+        if( uuids[i].shorted() == TILE_UUID ) {
+            Log.trace("UUID: %x", uuids[i].shorted());
 
-                // If we're in learning mode. Save to EEprom
-                if( isLearningModeOn() ) {
-                    searchAddress = scanResult->address;
-                    EEPROM.put(TILE_EEPROM_ADDRESS, scanResult->address);
-                    setLearningModeOff();
-                }
-
-                // Save info
-                lastSeen = millis();
-                lastRSSI = scanResult->rssi;
-
-                // Stop scanning
-                BLE.stopScanning();
-
-                return;
+            // If we're in learning mode. Save to EEprom
+            if( isLearningModeOn() ) {
+                searchAddress = scanResult->address;
+                EEPROM.put(TILE_EEPROM_ADDRESS, searchAddress);
+                setLearningModeOff();
             }
+
+            // Save info
+            lastSeen = millis();
+            lastRSSI = scanResult->rssi;
+
+            // Stop scanning
+            BLE.stopScanning();
+
+            return;
         }
     }
 
@@ -182,8 +181,14 @@ void setup() {
 
 void loop() {
 
+    // Reset timer
+    if( lastSeen > millis() ) {
+        lastSeen = 0;
+    }
+
     // Scan for devices
     if( (millis() > lastSeen + TILE_RE_CHECK_MS) ){
+        Log.trace("scan start.");
         BLE.scan(scanResultCallback, NULL);
     }
 
