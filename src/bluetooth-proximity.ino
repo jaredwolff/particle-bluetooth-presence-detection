@@ -158,7 +158,7 @@ bool checkTileStateChanged( TilePresenceType *presence ) {
 }
 
 void checkForScanStart() {
-    // Reset timer
+    // Reset timer on overflow
     if( lastSeen > millis() ) {
         lastSeen = 0;
     }
@@ -180,7 +180,7 @@ void setup() {
     System.on(button_click, systemEventHandler);
 
     // Set timeout for BLE to 500ms
-    BLE.setScanTimeout(50);
+    BLE.setScanTimeout(SCAN_TIMEOUT_10MS);
 
     // Get the search address
     EEPROM.get(TILE_EEPROM_ADDRESS, searchAddress);
