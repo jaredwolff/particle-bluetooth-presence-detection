@@ -140,12 +140,14 @@ bool checkTileStateChanged( TilePresenceType *presence ) {
             Log.trace("not here!");
             return true;
         }
+    // Case if we've just started up
     } else if ( lastSeen == 0 ) {
         if( *presence != PresenceUnknown ) {
             *presence = PresenceUnknown;
             Log.trace("unknown!");
             return true;
         }
+    // Case if lastSeen is < TILE_NOT_HERE_MS
     } else {
         if( *presence != Here ) {
             *presence = Here;
